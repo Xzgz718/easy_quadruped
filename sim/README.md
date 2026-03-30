@@ -1,57 +1,167 @@
-# MuJoCo 最小学习环境
+# MuJoCo Simulation Guide
 
-这个目录提供一个“固定机身 + 12 关节可视化”的最小版本，用来复用本仓库的：
+`sim/` 目录提供了一个围绕 `pupper/` 控制器搭建的 MuJoCo 仿真环境，目标不是复刻整套树莓派实机软件，而是把已有的步态控制、逆运动学和状态机放进一个更容易观察和调参的仿真闭环里。
 
-- 步态/落脚点规划：`src/Controller.py`
-- 逆运动学：`pupper/Kinematics.py`
-- 机器人参数：`pupper/Config.py`
+当前目录包含两条仿真路径：
 
-它会直接把控制器输出的关节角写入 MuJoCo 模型，重点是学习运动学控制，不是完整动力学仿真。
+- 固定机身版：`run_fixed_base.py`
+  - 机身不参与动力学，只把控制器输出的关节角直接写进 MuJoCo 关节位置。
+  - 适合检查逆运动学、足端轨迹和控制器输出是否合理。
+- 浮动机身版：`run_floating_base.py`
+  - 机身使用 `freejoint`，关节由 PD 力矩驱动。
+  - 通过 `SimObservationInterface` 把 MuJoCo 里的姿态、速度、触地和关节状态写回 `State`。
+  - 通过 `TaskScheduler` 在本地生成任务序列，不依赖 UDP 手柄输入。
 
-这里桥接时做了一个关键转换：原项目第三个角更接近“下杆绝对角”，MuJoCo 串联铰链里会自动转成相对膝角。
+## 目录结构
 
-## 环境
+- `build_fixed_base_mjcf.py`
+  - 根据 `pupper.Config.Configuration` 和 `pupper.Config.SimulationConfig` 生成固定机身 XML。
+- `build_floating_base_mjcf.py`
+  - 生成带 `freejoint`、motor、sensor 和触地 site 的浮动机身 XML。
+- `run_fixed_base.py`
+  - 最小桥接版：`Controller -> IK -> qpos`。
+- `run_floating_base.py`
+  - 动力学版：`TaskScheduler -> Controller -> IK -> PD torque -> MuJoCo`。
+- `sim_robot.py`
+  - 仿真侧的 IMU、硬件接口、观测接口、控制时钟和任务命令源适配层。
+- `task_scheduler.py`
+  - 任务序列解析、分段参数覆盖和平滑过渡逻辑。
+- `pupper_fixed.xml`
+  - 固定机身模型，通常由构建脚本自动生成或更新。
+- `pupper_floating.xml`
+  - 浮动机身模型，通常由构建脚本自动生成或更新。
 
-建议使用你现有的 `mujoco_learn`：
+## 环境要求
+
+建议在仓库根目录执行命令：`F:\stanford_quadruped`
+
+最少需要的 Python 依赖：
 
 ```bash
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate mujoco_learn
-pip install transforms3d
+pip install mujoco transforms3d numpy
 ```
 
-## 运行
+说明：
 
-先做无界面检查：
+- `run_fixed_base.py` 和 `run_floating_base.py` 会自行把仓库根目录加入 `sys.path`。
+- `build_*.py` 直接按脚本路径执行时不一定能解析到 `pupper` 包，最稳妥的方式是使用模块形式：
+
+```bash
+python -m sim.build_fixed_base_mjcf
+python -m sim.build_floating_base_mjcf
+```
+
+## 快速开始
+
+### 1. 重新生成 XML
+
+```bash
+python -m sim.build_fixed_base_mjcf
+python -m sim.build_floating_base_mjcf
+```
+
+也可以在运行脚本时附带 `--rebuild` 自动重建。
+
+### 2. 固定机身仿真
+
+固定机身版把控制器算出的目标角直接写入关节位置，不走力矩控制。
 
 ```bash
 python sim/run_fixed_base.py --headless --duration 2 --mode rest --rebuild
 python sim/run_fixed_base.py --headless --duration 2 --mode trot
-```
-
-再打开 MuJoCo 可视化：
-
-```bash
 python sim/run_fixed_base.py --mode trot --duration 20
 ```
 
-如果你想让机身也动，用浮动机身版本。
+常用参数：
 
-现在 `run_floating_base.py` 走“仿真本地任务层 + 实机同款控制器”的链路：
+- `--mode {rest,trot}`
+- `--duration`
+- `--headless`
+- `--rebuild`
+- `--x-vel`
+- `--y-vel`
+- `--yaw-rate`
+- `--height`
+- `--pitch`
+- `--roll`
 
-- `TaskScheduler -> TaskCommandSource -> Controller -> IK -> PD torque -> MuJoCo`
-- 不依赖 `UDPComms`
-- 不需要 `JoystickInterface`
-- 任务层会自动发出 `activate_event / trot_event`
+几个例子：
 
-浮动机身版本常见运行方式：
+```bash
+python sim/run_fixed_base.py --mode rest --pitch 0.2 --roll 0.1
+python sim/run_fixed_base.py --mode trot --x-vel 0.15 --y-vel 0.05
+python sim/run_fixed_base.py --mode trot --yaw-rate 0.8
+```
+
+### 3. 浮动机身仿真
+
+浮动机身版更接近“控制器驱动真实机器人”的链路：
+
+```text
+TaskScheduler
+  -> TaskCommandSource
+  -> Controller
+  -> four_legs_inverse_kinematics
+  -> SimHardwareInterface(PD torque)
+  -> MuJoCo
+  -> SimObservationInterface
+  -> State
+```
+
+常用运行方式：
 
 ```bash
 python sim/run_floating_base.py --headless --duration 4 --mode rest --rebuild
 python sim/run_floating_base.py --headless --duration 6 --mode trot
 python sim/run_floating_base.py --mode trot --duration 20
 python sim/run_floating_base.py --mode rest
-python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0,rest:1.0"
+```
+
+浮动机身版的默认行为：
+
+- `--mode rest` 时默认只保持静止。
+- `--mode trot` 且 `--settle > 0` 时，默认任务序列是 `rest:settle -> trot`。
+- `--task-sequence` 一旦提供，会覆盖 `--mode` 和 `--settle` 对任务流程的默认调度。
+
+在 viewer 模式下，右侧会尝试显示 3 个实时曲线面板：
+
+- `Pitch`
+- `Forward Vx`
+- `Contacts`
+
+如果本机 viewer 对绘图较敏感，可以关闭：
+
+```bash
+python sim/run_floating_base.py --mode trot --no-plots
+```
+
+也可以调整绘图窗口和刷新频率：
+
+```bash
+python sim/run_floating_base.py --mode trot --plot-window 8 --plot-update-interval 0.2
+```
+
+## 任务序列语法
+
+`task_scheduler.py` 支持把高层任务写成一串时间片段：
+
+```text
+mode[:duration][@key=value;key=value...],mode[:duration],...
+```
+
+规则：
+
+- 只支持 `rest` 和 `trot`
+- 只有最后一个片段可以省略持续时间
+- 持续时间可以写成 `inf` 或 `forever`
+- 参数列表放在 `@` 后面，多个参数用 `;` 或 `|` 分隔
+- 全局 `--transition-time` 是默认段间过渡时间
+- 某一段也可以单独写 `transition_time=...` 覆盖默认值
+
+示例：
+
+```bash
+python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0,rest"
 python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0@height=-0.17,trot:4.0@vx=0.08;pitch=0.03,rest"
 python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@vx=0.08;z_clearance=0.04;overlap_time=0.18;swing_time=0.10,rest"
 python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@vx=0.08;attitude_kp=0.03;attitude_kd=0.005;velocity_kp=0.2,rest"
@@ -59,112 +169,130 @@ python sim/run_floating_base.py --duration 8 --transition-time 0.3 --task-sequen
 python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@vx=0.08;transition_time=0.4,rest"
 ```
 
-打开 viewer 时，右侧会实时显示 3 个曲线面板：
+支持的任务参数：
 
-- `Pitch`
-- `Forward Vx`
-- `Contacts`
+- 运动命令
+  - `vx` / `x_vel`
+  - `vy` / `y_vel`
+  - `yaw_rate` / `yaw` / `wz`
+  - `height` / `z`
+  - `pitch`
+  - `roll`
+- 步态参数
+  - `z_clearance` / `clearance`
+  - `overlap_time` / `overlap`
+  - `swing_time` / `swing`
+- 反馈参数
+  - `attitude_kp` / `att_kp`
+  - `attitude_kd` / `att_kd`
+  - `velocity_kp` / `vel_kp`
+- 过渡参数
+  - `transition_time` / `transition` / `blend_time` / `blend`
 
-如果你本机的 viewer 对曲线刷新比较敏感，先用：
+## 浮动机身版的重要参数
+
+除了固定机身版已有的 `--mode`、`--duration`、`--height`、`--pitch`、`--roll` 等参数外，浮动机身版还提供以下关键调参入口。
+
+控制与约束：
+
+- `--kp`
+- `--kd`
+- `--torque-limit`
+- `--base-z`
+- `--activation-delay`
+- `--settle`
+
+步态与状态融合：
+
+- `--z-clearance`
+- `--overlap-time`
+- `--swing-time`
+- `--stance-state-blend`
+- `--swing-state-blend`
+- `--contact-threshold`
+
+简单反馈补偿：
+
+- `--attitude-kp`
+- `--attitude-kd`
+- `--velocity-kp`
+- `--max-attitude-feedback`
+- `--max-velocity-feedback`
+
+可视化与终端输出：
+
+- `--telemetry-interval`
+- `--plot-window`
+- `--plot-update-interval`
+- `--plot-start-delay`
+- `--no-plots`
+
+调参示例：
 
 ```bash
-python sim/run_floating_base.py --mode trot --no-plots
-```
-
-现在曲线面板默认已经改成“延迟启动 + 低频刷新”，也可以手动调：
-
-```bash
-python sim/run_floating_base.py --mode trot --plot-window 8 --plot-update-interval 0.2
-```
-
-当前默认参数已经切到“接触感知回灌”版：`x_vel=0.06`、`z_clearance=0.03`、`overlap_time=0.16`、`swing_time=0.11`、`stance_state_blend=0.5`、`swing_state_blend=0.05`、`kp=24`、`kd=2.2`、`settle=1.0`。
-在我这边的无界面测试里，`20s` 可以稳定前进，机身前移约 `0.90m`，最大 pitch 约 `0.091rad`；如果把 `x_vel` 降到 `0.05`，最大 pitch 可进一步压到约 `0.086rad`。
-
-浮动机身版本现在还额外做了两件事：
-
-- 把 MuJoCo 的关节、足端、机身姿态、机身速度直接写回 `State`
-- 按接触状态做状态校正：支撑腿更强回灌，摆动腿更弱回灌
-
-常用参数：
-
-```bash
-python sim/run_fixed_base.py --mode rest --pitch 0.2 --roll 0.1
-python sim/run_fixed_base.py --mode trot --x-vel 0.15 --y-vel 0.05
-python sim/run_fixed_base.py --mode trot --yaw-rate 0.8
 python sim/run_floating_base.py --mode trot --x-vel 0.06 --kp 24 --kd 2.2 --settle 1.0
-python sim/run_floating_base.py --mode trot --x-vel 0.06
 python sim/run_floating_base.py --mode trot --x-vel 0.05
 python sim/run_floating_base.py --mode trot --activation-delay 0.5 --settle 1.0
-python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0,rest"
-python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0@height=-0.18,trot:4.0@vx=0.08;vy=0.02;pitch=0.03,rest"
-python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@vx=0.08;z_clearance=0.04;overlap=0.18;swing=0.10,rest"
-python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@vx=0.08;att_kp=0.03;att_kd=0.005;vel_kp=0.2,rest"
-python sim/run_floating_base.py --duration 8 --transition-time 0.3 --task-sequence "rest:1.0,trot:4.0,rest"
-python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@vx=0.08;blend=0.4,rest"
-python sim/run_floating_base.py --mode rest --height -0.17 --base-z 0.18
-python sim/run_floating_base.py --mode trot --telemetry-interval 0
 python sim/run_floating_base.py --mode trot --stance-state-blend 0.5 --swing-state-blend 0.05
 python sim/run_floating_base.py --mode trot --z-clearance 0.03 --overlap-time 0.16 --swing-time 0.11
 python sim/run_floating_base.py --mode trot --attitude-kp 0.03 --attitude-kd 0.005
-python sim/run_floating_base.py --mode trot --plot-window 8
-python sim/run_floating_base.py --mode trot --plot-window 8 --plot-update-interval 0.2
-python sim/run_floating_base.py --mode trot --no-plots
+python sim/run_floating_base.py --mode rest --height -0.17 --base-z 0.18
+python sim/run_floating_base.py --mode trot --telemetry-interval 0
 ```
 
-## 文件
+## 当前实现细节
 
-- `sim/build_fixed_base_mjcf.py`：按 `pupper/Config.py` 生成 `sim/pupper_fixed.xml`
-- `sim/run_fixed_base.py`：控制器到 MuJoCo 的最小桥接
-- `sim/build_floating_base_mjcf.py`：生成 `sim/pupper_floating.xml`
-- `sim/sim_robot.py`：MuJoCo 版 IMU / 执行器 / 状态观测 / 时钟适配层
-- `sim/run_floating_base.py`：浮动机身 + PD 力矩控制
-- `sim/pupper_fixed.xml`：首次运行自动生成
-- `sim/pupper_floating.xml`：首次运行自动生成
+### 固定机身版
 
-## 说明
+- 使用 `Controller` 和 `four_legs_inverse_kinematics`
+- 把控制器输出的 12 个关节角转换为 MuJoCo 关节位置
+- 第三个关节写入的是相对膝角：`knee = alpha[2] - alpha[1]`
+- 每一步通过 `pose_error()` 对比 MuJoCo 足端位置和控制器里的 `state.foot_locations`
 
-浮动机身版本现在的命令链路就是“本地任务层 + 轻量状态反馈”：
+### 浮动机身版
 
-- 关节目标来自原仓库 `Controller + IK`
-- MuJoCo 里通过 PD 力矩追踪关节目标
-- 控制器状态里会保存测得的关节角、关节速度、足端位置、机身姿态、机身速度
-- 接触腿默认强回灌，摆动腿默认弱回灌
-- 启动流程更接近 `run_robot.py`：`DEACTIVATED -> REST -> TROT`
-- 现在可以用 `TaskScheduler` 显式编排任务序列，例如 `rest -> trot -> rest`
-- 每个任务段还能覆盖步态参数，如 `z_clearance / overlap_time / swing_time`
-- 每个任务段还能覆盖姿态/速度反馈增益，如 `attitude_kp / attitude_kd / velocity_kp`
-- 现在还支持段间平滑过渡，避免参数一步跳变
-- 终端会定期打印 `xyz / rpy / touch` 遥测
-- viewer 模式会实时显示 `pitch / vx / contact` 曲线面板
+- `SimHardwareInterface` 维护目标关节位置，并用 PD 力矩追踪
+- `SimObservationInterface` 读取：
+  - 机身位置、姿态、线速度、角速度
+  - 四足足端位置
+  - 四足触地力
+  - 12 个关节角和关节速度
+- 观测会写回 `State`
+  - `body_position`
+  - `body_velocity`
+  - `angular_velocity`
+  - `measured_foot_locations`
+  - `measured_joint_angles`
+  - `measured_joint_velocities`
+  - `foot_forces`
+  - `contact_estimate`
+- 足端状态融合是分腿做的：
+  - 触地腿使用 `stance_state_blend`
+  - 摆动腿使用 `swing_state_blend`
+- 当任务段切换且模式变化时，会把 `state.ticks` 置零，便于控制器重新进入对应步态阶段
 
-`--task-sequence` 的格式是：
+### 失稳保护
 
-- `rest:1.0,trot:3.0,rest:1.0`
-- `rest:1.0@height=-0.17,trot:3.0@vx=0.08;pitch=0.03,rest`
-- `rest:1.0,trot:3.0@vx=0.08;z_clearance=0.04;overlap_time=0.18;swing_time=0.10,rest`
-- `rest:1.0,trot:3.0@vx=0.08;attitude_kp=0.03;attitude_kd=0.005;velocity_kp=0.2,rest`
-- `rest:1.0,trot:3.0@vx=0.08;transition_time=0.3,rest`
-- 只有最后一段可以省略时长，例如 `rest:1.0,trot:3.0,rest`
-- 每段都可以在 `@` 后面写局部参数，多个参数用 `;` 分隔
-- `--transition-time` 可以设置所有任务段的默认平滑过渡时间
-- 单段也可以单独覆盖：`transition_time`，别名 `transition` / `blend_time` / `blend`
-- 当前支持的局部参数：`vx`、`vy`、`yaw_rate`、`height`、`pitch`、`roll`、`z_clearance`、`overlap_time`、`swing_time`、`attitude_kp`、`attitude_kd`、`velocity_kp`、`transition_time`
-- 其中别名也可用：`x_vel`/`vx`、`y_vel`/`vy`、`yaw`/`yaw_rate`、`z`/`height`、`clearance`/`z_clearance`、`overlap`/`overlap_time`、`swing`/`swing_time`、`att_kp`/`attitude_kp`、`att_kd`/`attitude_kd`、`vel_kp`/`velocity_kp`、`transition`/`transition_time`、`blend`/`transition_time`
-- 如果提供了 `--task-sequence`，它会覆盖 `--mode` 和 `--settle` 的默认调度逻辑
+浮动机身循环里有一个简单的仿真稳定性保护：
 
-如果你更关注“稳”而不是“快”，优先用：
+- `data.qpos` 出现非有限值会报错
+- 机身 `z` 低于 `0.05` 会报错并中断仿真
 
-- 更小的 `x_vel`
-- 更小的 `z_clearance`
-- 更大的 `overlap_time`
+## 建议的阅读顺序
 
-所以它很适合学习“步态规划如何推动机身前进”，也能初步观察状态估计误差如何影响步态，但还不是严格的高保真全状态闭环。
+如果你想理解 `sim/` 的工作方式，建议按下面顺序读：
 
-## 后续可扩展
+1. `sim/run_floating_base.py`
+2. `sim/sim_robot.py`
+3. `sim/task_scheduler.py`
+4. `sim/build_floating_base_mjcf.py`
+5. `pupper/Config.py`
+6. `pupper/Kinematics.py`
+7. `src/Controller.py`
 
-下一步如果你想继续学：
+## 注意事项
 
-1. 把 `qpos` 直写改成 position actuator + PD
-2. 把 MuJoCo 的关节/足端状态真正回灌到控制器
-3. 打开更完整的地面接触和重力下稳定性调参
-4. 把 MuJoCo 姿态回灌到 `state.quat_orientation`
+- 该目录服务的是 `pupper/` 这条主线，不是 `woofer/`
+- 文档中的命令默认都假设当前工作目录是仓库根目录
+- 如果只是想检查控制器和逆运动学，优先用固定机身版
+- 如果想观察接触、姿态、速度反馈和参数过渡，再切到浮动机身版

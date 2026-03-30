@@ -1,0 +1,138 @@
+@startuml
+title Stanford Quadruped Project Architecture\n(entry: sim/run_floating_base.py)
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName Consolas
+skinparam wrapWidth 240
+skinparam maxMessageSize 220
+skinparam linetype ortho
+skinparam ArrowThickness 2
+skinparam nodesep 100
+skinparam ranksep 120
+skinparam CaptionFontColor #666666
+skinparam CaptionFontSize 11
+left to right direction
+
+caption Main runtime spine: task layer -> controller core -> sim actuation -> MuJoCo -> observation -> state feedback\nShared core reused by sim/run_floating_base.py and run_robot.py; trot path = gait phase -> stance/swing foot trajectory -> IK.\nSim swaps joystick/hardware adapters for task scheduler + MuJoCo interfaces; run_robot.py swaps in JoystickInterface + IMU + HardwareInterface.
+
+package "1. Entry / Model Build" {
+  component "CLI args\nparse_args()" as CLI
+  component "sim/run_floating_base.py\nmain() + run_loop()" as SimEntry
+  component "sim/build_floating_base_mjcf.py\nbuild_mjcf()" as Builder
+
+  CLI -down-> SimEntry
+  SimEntry -down-> Builder : rebuild if needed
+}
+
+database "Generated MJCF\nsim/pupper_floating.xml" as XML
+
+package "2. Task Layer (sim-specific)" {
+  component "TaskScheduler\n(sim/task_scheduler.py)" as Scheduler
+  component "TaskCommandSource\n(sim/sim_robot.py)" as CmdSource
+  component "Feedback input bus" as FeedbackIn
+  component "apply_feedback()\nattitude + velocity\ncompensation" as Feedback
+
+  Scheduler -[hidden]down-> CmdSource
+  FeedbackIn -[hidden]down-> Feedback
+  Feedback -[hidden]right-> CmdSource
+}
+
+package "3. Shared Contracts" {
+  database "State\n(src/State.py)" as State
+  component "State read bus" as StateRead
+  component "State write bus" as StateWrite
+  component "Task dispatch bus" as TaskDispatch
+  component "Command\n(src/Command.py)" as Command
+  component "Configuration\n(pupper/Config.py)" as Config
+
+  State -[hidden]up-> StateRead
+  StateRead -[hidden]down-> StateWrite
+  State -[hidden]right-> StateWrite
+  StateWrite -[hidden]right-> TaskDispatch
+  Command -[hidden]down-> TaskDispatch
+  TaskDispatch -[hidden]right-> Config
+}
+
+package "4. Shared Locomotion Core" {
+  component "Controller input bus" as CtrlIn
+  component "Controller.run()\n(src/Controller.py)" as Controller
+  component "Controller state output" as CtrlOut
+  component "GaitController\nphase index + contacts\n(src/Gaits.py)" as Gait
+  component "StanceController\nsupport-leg update\n(src/StanceController.py)" as Stance
+  component "SwingController\nRaibert touchdown +\nswing height\n(src/SwingLegController.py)" as Swing
+  component "four_legs_inverse_kinematics()\n(pupper/Kinematics.py)" as IK
+
+  CtrlIn -[hidden]right-> Controller
+  Controller -[hidden]right-> CtrlOut
+  Gait -[hidden]down-> Stance
+  Stance -[hidden]right-> Swing
+  Swing -[hidden]right-> IK
+}
+
+package "5. Simulation Closure" {
+  component "MuJoCo\nMjModel + MjData" as MuJoCo
+  component "SimObservationInterface + SimIMU\n(sim/sim_robot.py)" as Obs
+  component "SimHardwareInterface\nPD torque tracker\n(sim/sim_robot.py)" as Act
+  component "SimControlClock\n(sim/sim_robot.py)" as Clock
+  component "Viewer + live plots + telemetry" as Viz
+}
+
+CLI -[hidden]right-> Scheduler
+SimEntry -[hidden]down-> Scheduler
+Builder -[hidden]right-> XML
+Scheduler -[hidden]down-> StateRead
+CmdSource -[hidden]down-> TaskDispatch
+StateRead -[hidden]down-> CtrlIn
+TaskDispatch -[hidden]down-> CtrlIn
+Command -[hidden]down-> CtrlIn
+Config -[hidden]down-> CtrlIn
+State -[hidden]right-> CtrlIn
+CtrlOut -[hidden]right-> Act
+XML -[hidden]down-> CtrlOut
+Act -[hidden]right-> MuJoCo
+MuJoCo -[hidden]right-> Obs
+Obs -[hidden]right-> Viz
+
+Builder -right-> XML : generate MJCF
+XML --> MuJoCo : load model/data
+
+Scheduler -down-> CmdSource : task step\nmode / transition blend
+CmdSource -down-> TaskDispatch : task outputs
+
+State -up-> StateRead
+StateRead -down-> FeedbackIn : measured pose / velocity
+Command -left-> FeedbackIn : nominal command
+FeedbackIn -down-> Feedback
+Feedback -right-> TaskDispatch : compensated command
+TaskDispatch -up-> Command : activate/trot events\nvx vy yaw height pitch roll
+TaskDispatch -down-> Config : z_clearance\noverlap_time\nswing_time
+
+Command --> CtrlIn : desired motion
+Config --> CtrlIn : gait + robot params
+StateRead --> CtrlIn : measured state
+CtrlIn --> Controller : controller inputs
+
+Controller --> Gait : phase / contact query
+Controller --> Stance : support-leg update
+Controller --> Swing : swing-leg update
+Gait --> Stance : stance legs
+Gait --> Swing : swing phase
+Stance --> IK : stance foot targets
+Swing --> IK : swing foot targets
+IK --> Controller : 12 joint angles
+Controller --> CtrlOut : foot_locations\njoint_angles\nbehavior_state\nticks
+CtrlOut -left-> StateWrite : controller state update
+
+CtrlOut --> Act : target joint angles
+Clock --> Act : control interval
+Act --> MuJoCo : PD torque + mj_step()
+MuJoCo --> Obs : sensors + kinematics
+Obs -left-> StateWrite : body / joint / foot / contact
+StateWrite -left-> State
+Obs --> Viz : telemetry + pose error
+MuJoCo --> Viz : viewer data
+Clock --> Viz : viewer sync
+
+@enduml

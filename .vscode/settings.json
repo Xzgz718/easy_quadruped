@@ -1,0 +1,9 @@
+{
+  "plantuml.render": "Local",
+  "plantuml.java": "C:\\Program Files\\Eclipse Adoptium\\jre-17.0.18.8-hotspot\\bin\\java.exe",
+  "plantuml.jar": "C:\\Users\\tangp\\.vscode\\extensions\\jebbs.plantuml-2.18.1\\plantuml.jar",
+  "plantuml.jarArgs": [
+    "-graphvizdot",
+    "C:\\Program Files\\Graphviz\\bin\\dot.exe"
+  ]
+}

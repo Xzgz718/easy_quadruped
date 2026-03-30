@@ -1,0 +1,144 @@
+<mujoco model="stanford_quadruped_floating">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.001000" integrator="RK4" gravity="0 0 -9.81" iterations="50" ls_iterations="20"/>
+  <visual>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.20 0.20 0.20"/>
+    <map znear="0.01"/>
+  </visual>
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.20 0.20 0.20" rgb2="0.10 0.10 0.10" width="512" height="512"/>
+    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.15"/>
+  </asset>
+  <worldbody>
+    <light name="sun" pos="0 0 2.0" dir="0 0 -1" directional="true"/>
+    <geom name="floor" type="plane" size="4 4 0.1" material="grid" friction="1.500 0.05 0.01" solref="0.01 1" solimp="0.9 0.95 0.001"/>
+    <camera name="overview" pos="1.00 -1.40 0.70" xyaxes="1.0 0.0 0.0 0.0 0.55 0.84"/>
+    <body name="torso" pos="0 0 0.19">
+      <freejoint name="root"/>
+      <geom name="torso_geom" type="box" size="0.138000 0.050000 0.025000" mass="0.880000" contype="0" conaffinity="0" rgba="0.18 0.18 0.18 1"/>
+      <site name="torso_center" pos="0 0 0" size="0.01" rgba="1 1 1 1"/>
+      <site name="imu_site" pos="0 0 0" size="0.006" rgba="0.2 0.8 1 0.8"/>
+
+    <body name="fr_abad_body" pos="0.100000 -0.040000 0.000000">
+      <joint name="fr_abad" type="hinge" axis="1 0 0" range="-1.4 1.4" damping="1.049000" armature="0.019360"/>
+      <geom name="fr_abad_link" type="capsule" fromto="0 0 0 0 -0.030000 0" size="0.009" mass="0.002475" contype="0" conaffinity="0" rgba="0.90 0.30 0.30 1"/>
+      <body name="fr_hip_body" pos="0 -0.030000 0">
+        <joint name="fr_hip" type="hinge" axis="0 1 0" range="-2.5 2.5" damping="1.049000" armature="0.019360"/>
+        <geom name="fr_upper_link" type="capsule" fromto="0 0 0 0 0 -0.123500" size="0.008" mass="0.009900" contype="0" conaffinity="0" rgba="0.90 0.30 0.30 1"/>
+        <body name="fr_knee_body" pos="0 0 -0.123500">
+          <joint name="fr_knee" type="hinge" axis="0 1 0" range="-2.8 0.4" damping="1.049000" armature="0.019360"/>
+          <geom name="fr_lower_link" type="capsule" fromto="0 0 0 0 0 -0.115000" size="0.007" mass="0.015600" contype="0" conaffinity="0" rgba="0.90 0.30 0.30 1"/>
+          <geom name="fr_foot_geom" type="sphere" pos="0 0 -0.115000" size="0.010000" mass="0.004500" friction="1.500 0.02 0.01" solref="0.01 1" solimp="0.9 0.95 0.001" rgba="0.90 0.30 0.30 1"/>
+          <site name="fr_foot" pos="0 0 -0.115000" size="0.012" rgba="0.90 0.30 0.30 1"/>
+          <site name="fr_contact" pos="0 0 -0.115000" size="0.016" rgba="0.90 0.30 0.30 0.25"/>
+        </body>
+      </body>
+    </body>
+    
+
+    <body name="fl_abad_body" pos="0.100000 0.040000 0.000000">
+      <joint name="fl_abad" type="hinge" axis="1 0 0" range="-1.4 1.4" damping="1.049000" armature="0.019360"/>
+      <geom name="fl_abad_link" type="capsule" fromto="0 0 0 0 0.030000 0" size="0.009" mass="0.002475" contype="0" conaffinity="0" rgba="0.30 0.90 0.30 1"/>
+      <body name="fl_hip_body" pos="0 0.030000 0">
+        <joint name="fl_hip" type="hinge" axis="0 1 0" range="-2.5 2.5" damping="1.049000" armature="0.019360"/>
+        <geom name="fl_upper_link" type="capsule" fromto="0 0 0 0 0 -0.123500" size="0.008" mass="0.009900" contype="0" conaffinity="0" rgba="0.30 0.90 0.30 1"/>
+        <body name="fl_knee_body" pos="0 0 -0.123500">
+          <joint name="fl_knee" type="hinge" axis="0 1 0" range="-2.8 0.4" damping="1.049000" armature="0.019360"/>
+          <geom name="fl_lower_link" type="capsule" fromto="0 0 0 0 0 -0.115000" size="0.007" mass="0.015600" contype="0" conaffinity="0" rgba="0.30 0.90 0.30 1"/>
+          <geom name="fl_foot_geom" type="sphere" pos="0 0 -0.115000" size="0.010000" mass="0.004500" friction="1.500 0.02 0.01" solref="0.01 1" solimp="0.9 0.95 0.001" rgba="0.30 0.90 0.30 1"/>
+          <site name="fl_foot" pos="0 0 -0.115000" size="0.012" rgba="0.30 0.90 0.30 1"/>
+          <site name="fl_contact" pos="0 0 -0.115000" size="0.016" rgba="0.30 0.90 0.30 0.25"/>
+        </body>
+      </body>
+    </body>
+    
+
+    <body name="br_abad_body" pos="-0.100000 -0.040000 0.000000">
+      <joint name="br_abad" type="hinge" axis="1 0 0" range="-1.4 1.4" damping="1.049000" armature="0.019360"/>
+      <geom name="br_abad_link" type="capsule" fromto="0 0 0 0 -0.030000 0" size="0.009" mass="0.002475" contype="0" conaffinity="0" rgba="0.30 0.30 0.90 1"/>
+      <body name="br_hip_body" pos="0 -0.030000 0">
+        <joint name="br_hip" type="hinge" axis="0 1 0" range="-2.5 2.5" damping="1.049000" armature="0.019360"/>
+        <geom name="br_upper_link" type="capsule" fromto="0 0 0 0 0 -0.123500" size="0.008" mass="0.009900" contype="0" conaffinity="0" rgba="0.30 0.30 0.90 1"/>
+        <body name="br_knee_body" pos="0 0 -0.123500">
+          <joint name="br_knee" type="hinge" axis="0 1 0" range="-2.8 0.4" damping="1.049000" armature="0.019360"/>
+          <geom name="br_lower_link" type="capsule" fromto="0 0 0 0 0 -0.115000" size="0.007" mass="0.015600" contype="0" conaffinity="0" rgba="0.30 0.30 0.90 1"/>
+          <geom name="br_foot_geom" type="sphere" pos="0 0 -0.115000" size="0.010000" mass="0.004500" friction="1.500 0.02 0.01" solref="0.01 1" solimp="0.9 0.95 0.001" rgba="0.30 0.30 0.90 1"/>
+          <site name="br_foot" pos="0 0 -0.115000" size="0.012" rgba="0.30 0.30 0.90 1"/>
+          <site name="br_contact" pos="0 0 -0.115000" size="0.016" rgba="0.30 0.30 0.90 0.25"/>
+        </body>
+      </body>
+    </body>
+    
+
+    <body name="bl_abad_body" pos="-0.100000 0.040000 0.000000">
+      <joint name="bl_abad" type="hinge" axis="1 0 0" range="-1.4 1.4" damping="1.049000" armature="0.019360"/>
+      <geom name="bl_abad_link" type="capsule" fromto="0 0 0 0 0.030000 0" size="0.009" mass="0.002475" contype="0" conaffinity="0" rgba="0.90 0.90 0.30 1"/>
+      <body name="bl_hip_body" pos="0 0.030000 0">
+        <joint name="bl_hip" type="hinge" axis="0 1 0" range="-2.5 2.5" damping="1.049000" armature="0.019360"/>
+        <geom name="bl_upper_link" type="capsule" fromto="0 0 0 0 0 -0.123500" size="0.008" mass="0.009900" contype="0" conaffinity="0" rgba="0.90 0.90 0.30 1"/>
+        <body name="bl_knee_body" pos="0 0 -0.123500">
+          <joint name="bl_knee" type="hinge" axis="0 1 0" range="-2.8 0.4" damping="1.049000" armature="0.019360"/>
+          <geom name="bl_lower_link" type="capsule" fromto="0 0 0 0 0 -0.115000" size="0.007" mass="0.015600" contype="0" conaffinity="0" rgba="0.90 0.90 0.30 1"/>
+          <geom name="bl_foot_geom" type="sphere" pos="0 0 -0.115000" size="0.010000" mass="0.004500" friction="1.500 0.02 0.01" solref="0.01 1" solimp="0.9 0.95 0.001" rgba="0.90 0.90 0.30 1"/>
+          <site name="bl_foot" pos="0 0 -0.115000" size="0.012" rgba="0.90 0.90 0.30 1"/>
+          <site name="bl_contact" pos="0 0 -0.115000" size="0.016" rgba="0.90 0.90 0.30 0.25"/>
+        </body>
+      </body>
+    </body>
+    
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="fr_abad_motor" joint="fr_abad" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="fr_hip_motor" joint="fr_hip" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="fr_knee_motor" joint="fr_knee" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="fl_abad_motor" joint="fl_abad" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="fl_hip_motor" joint="fl_hip" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="fl_knee_motor" joint="fl_knee" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="br_abad_motor" joint="br_abad" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="br_hip_motor" joint="br_hip" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="br_knee_motor" joint="br_knee" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="bl_abad_motor" joint="bl_abad" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="bl_hip_motor" joint="bl_hip" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+    <motor name="bl_knee_motor" joint="bl_knee" gear="1" ctrllimited="true" ctrlrange="-3.000 3.000"/>
+  </actuator>
+  <sensor>
+    <framepos name="torso_pos" objtype="site" objname="torso_center"/>
+    <framequat name="imu_quat" objtype="site" objname="imu_site"/>
+    <gyro name="imu_gyro" site="imu_site"/>
+    <accelerometer name="imu_acc" site="imu_site"/>
+    <velocimeter name="imu_vel" site="imu_site"/>
+    <framepos name="fr_foot_pos" objtype="site" objname="fr_foot"/>
+    <touch name="fr_touch" site="fr_contact"/>
+    <framepos name="fl_foot_pos" objtype="site" objname="fl_foot"/>
+    <touch name="fl_touch" site="fl_contact"/>
+    <framepos name="br_foot_pos" objtype="site" objname="br_foot"/>
+    <touch name="br_touch" site="br_contact"/>
+    <framepos name="bl_foot_pos" objtype="site" objname="bl_foot"/>
+    <touch name="bl_touch" site="bl_contact"/>
+    <jointpos name="fr_abad_pos" joint="fr_abad"/>
+    <jointvel name="fr_abad_vel" joint="fr_abad"/>
+    <jointpos name="fr_hip_pos" joint="fr_hip"/>
+    <jointvel name="fr_hip_vel" joint="fr_hip"/>
+    <jointpos name="fr_knee_pos" joint="fr_knee"/>
+    <jointvel name="fr_knee_vel" joint="fr_knee"/>
+    <jointpos name="fl_abad_pos" joint="fl_abad"/>
+    <jointvel name="fl_abad_vel" joint="fl_abad"/>
+    <jointpos name="fl_hip_pos" joint="fl_hip"/>
+    <jointvel name="fl_hip_vel" joint="fl_hip"/>
+    <jointpos name="fl_knee_pos" joint="fl_knee"/>
+    <jointvel name="fl_knee_vel" joint="fl_knee"/>
+    <jointpos name="br_abad_pos" joint="br_abad"/>
+    <jointvel name="br_abad_vel" joint="br_abad"/>
+    <jointpos name="br_hip_pos" joint="br_hip"/>
+    <jointvel name="br_hip_vel" joint="br_hip"/>
+    <jointpos name="br_knee_pos" joint="br_knee"/>
+    <jointvel name="br_knee_vel" joint="br_knee"/>
+    <jointpos name="bl_abad_pos" joint="bl_abad"/>
+    <jointvel name="bl_abad_vel" joint="bl_abad"/>
+    <jointpos name="bl_hip_pos" joint="bl_hip"/>
+    <jointvel name="bl_hip_vel" joint="bl_hip"/>
+    <jointpos name="bl_knee_pos" joint="bl_knee"/>
+    <jointvel name="bl_knee_vel" joint="bl_knee"/>
+  </sensor>
+</mujoco>

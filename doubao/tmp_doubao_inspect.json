@@ -1,0 +1,21 @@
+{
+  "top0": "thread_(token)/page",
+  "top1": "shareInfo",
+  "message_count": 181,
+  "first": {
+    "index": 1,
+    "message_type": 1,
+    "content_type": 9999,
+    "reply_id": "0",
+    "message_id": "41425316780485122",
+    "create_time": 1774849766
+  },
+  "last": {
+    "index": 449,
+    "message_type": 1,
+    "content_type": 9999,
+    "reply_id": "41482768013874690",
+    "message_id": "41482768013878274",
+    "create_time": 1774920208
+  }
+}

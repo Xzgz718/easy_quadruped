@@ -73,7 +73,7 @@ def build_mjcf(xml_path: str | Path | None = None) -> Path:
     )
     torso_mass = config.FRAME_MASS + config.MODULE_MASS * 4
 
-    xml = f"""<mujoco model="stanford_quadruped_floating">
+    xml = f"""<mujoco model="easy_quadruped_floating">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="{sim_config.DT:.6f}" integrator="RK4" gravity="0 0 -9.81" iterations="50" ls_iterations="20"/>
   <visual>

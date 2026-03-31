@@ -1,6 +1,6 @@
-# Stanford Quadruped Fork
+# easy_quadruped
 
-基于 Stanford Student Robotics 的 `StanfordQuadruped` 项目做的二次开发版本，当前公开快照主要聚焦在控制器核心、运动学与 MuJoCo 仿真链路，而不是上游仓库的完整镜像。
+`easy_quadruped` 是基于 Stanford Student Robotics 的 `StanfordQuadruped` 项目做的二次开发版本，当前公开快照主要聚焦在控制器核心、运动学与 MuJoCo 仿真链路，而不是上游仓库的完整镜像。
 
 原始项目：
 https://github.com/stanfordroboticsclub/StanfordQuadruped
@@ -78,4 +78,3 @@ python sim/run_floating_base.py --headless --duration 8 --task-sequence "rest:1.
 上游项目采用 MIT 许可证，本仓库保留了原始许可证文本与版权声明，见 `LICENSE`。
 
 本仓库中的二次开发部分，除非某个文件或目录另有声明，也按 MIT 许可证公开。更完整的来源说明和非官方声明见 `NOTICE`。
-

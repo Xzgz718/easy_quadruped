@@ -32,7 +32,7 @@ from sim.sim_robot import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Floating-base MuJoCo visualizer for StanfordQuadruped.")
+    parser = argparse.ArgumentParser(description="Floating-base MuJoCo visualizer for easy_quadruped.")
     parser.add_argument("--mode", choices=("rest", "trot"), default="trot")
     parser.add_argument("--task-sequence", type=str, default=None)
     parser.add_argument("--transition-time", type=float, default=0.0)

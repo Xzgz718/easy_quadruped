@@ -62,7 +62,7 @@
 - 级别 3：知道 `Controller.run()` 怎样切状态、算 gait、给足端目标、再做 IK
 - 级别 4：知道 `run_fixed_base.py` 和 `run_floating_base.py` 分别在学什么
 - 级别 5：知道 MuJoCo 的关节/足端/姿态怎样回灌到控制器
-- 级别 6：能调 `x_vel / overlap_time / swing_time / kp / kd / blend` 这类参数
+- 级别 6：能调 `x_vel / overlap_time / swing_time / kp / kd / blend / task-sequence / transition-time` 这类参数
 - 级别 7：能解释系统为什么稳、为什么不稳、为什么点头、为什么拖腿
 - 级别 8：能自己加低层控制器、加状态估计、加更完整可视化
 - 级别 9：能把这个项目当成一个完整的四足学习平台来扩展
@@ -328,12 +328,15 @@ Controller output
 
 这个文件是本教程的主入口。
 
-它比固定机身多了 5 类关键能力：
+它比固定机身多了 8 类关键能力：
 
 - 浮动机身自由度
+- 仿真侧任务层：`TaskScheduler + TaskCommandSource`
+- 机器人风格适配层：`SimObservationInterface / SimIMU / SimHardwareInterface / SimControlClock`
 - MuJoCo 传感器读数
 - 关节/足端/姿态/速度状态回灌
 - 关节 PD 力矩执行
+- 段间平滑过渡和局部参数覆盖
 - viewer + telemetry + live plots
 
 它的主线是：
@@ -342,13 +345,16 @@ Controller output
 parse_args
   -> build/load MJCF
   -> initialize_controller
+  -> create sim adapters
+  -> create TaskScheduler / TaskCommandSource
   -> set_initial_pose
-  -> sync_state_from_sim
-  -> make_command
+  -> observation.sync_state
+  -> apply task-step config
+  -> get_command
   -> apply_feedback
   -> controller.run
-  -> compute_pd_torques
-  -> mujoco.mj_step
+  -> set_actuator_postions
+  -> hardware_interface.step
   -> viewer / telemetry / plots
 ```
 
@@ -388,6 +394,20 @@ activate_event
 ```
 
 这很重要，因为很多更复杂的系统最后也还是会落到类似抽象上。
+
+但在当前 MuJoCo 架构里，`Command` 上面已经又多了一层任务调度：
+
+```flow
+TaskScheduler
+  -> TaskCommandSource
+  -> Command
+  -> Controller
+```
+
+也就是说：
+
+- `Command` 仍然是控制器唯一认识的输入格式
+- 但谁来生成这一拍的 `Command`，现在已经可以是“任务序列 + 局部参数 + 平滑过渡”，不再只是一次静态命令
 
 ### 4.2 `State`：系统当前认为机器人处于什么状态
 
@@ -882,13 +902,22 @@ IMU 部分很简单：
 
 ```flow
 实机:
-Joystick -> Command -> Controller -> joint_angles -> PWM -> Robot -> IMU
+JoystickInterface -> Command -> Controller -> HardwareInterface -> Robot -> IMU
 
 MuJoCo:
-argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sensors
+TaskScheduler -> TaskCommandSource -> Command
+  -> Controller
+  -> SimHardwareInterface
+  -> MuJoCo
+  -> SimObservationInterface / SimIMU
 ```
 
 所以 MuJoCo 版本并没有推翻原系统，它只是把末端执行器和传感器都替换成了仿真版本。
+
+更准确地说，当前版本做了两件事：
+
+- 保留 `Controller`、`Command`、`State` 这套原项目核心接口
+- 在 `sim/` 里补了一层“任务层 + 适配层”，让仿真链更像实机链，但又不依赖手柄
 
 ---
 
@@ -926,7 +955,55 @@ argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sens
 
 这就是浮动机身版本的意义。
 
-### 11.3 `sim/build_fixed_base_mjcf.py`
+### 11.3 `sim/sim_robot.py`：为什么当前架构里多了一层适配器
+
+现在的浮动机身版本不再把所有桥接逻辑都塞在入口脚本里，而是抽成了 `sim/sim_robot.py`：
+
+- `SimObservationInterface`
+- `SimIMU`
+- `SimHardwareInterface`
+- `SimControlClock`
+- `TaskCommandSource`
+
+这层适配器的意义很大：
+
+```flow
+MuJoCo world
+  -> 适配成“像机器人侧一样”的接口
+  -> run_floating_base.py 只负责编排主循环
+```
+
+这样做带来 3 个好处：
+
+- `run_floating_base.py` 更像 `run_robot.py` 的主循环骨架
+- 传感器、执行器、时钟和任务层职责更清晰
+- 以后要继续做 sim2real 风格重构时，入口脚本不容易变成一锅粥
+
+### 11.4 `TaskScheduler + TaskCommandSource`：仿真里的上层任务层
+
+当前版本最值得注意的升级，不只是“传感器回灌”，还有“任务层上移”。
+
+它现在不是简单地把 `argparse` 直接翻译成一条静态命令，而是：
+
+```flow
+task sequence
+  -> TaskScheduler
+  -> TaskCommandSource
+  -> 每一拍 Command
+```
+
+这意味着你现在可以在仿真里直接表达：
+
+- `DEACTIVATED -> REST -> TROT`
+- `rest -> trot -> rest`
+- 每一段自己的 `vx / height / pitch`
+- 每一段自己的 `z_clearance / overlap_time / swing_time`
+- 每一段自己的 `attitude_kp / attitude_kd / velocity_kp`
+- 段间 `transition_time` 平滑过渡
+
+这一步非常关键，因为它把仿真入口从“单个命令实验脚本”提升成了“可编排任务脚本”。
+
+### 11.5 `sim/build_fixed_base_mjcf.py`
 
 它负责把 `Configuration` 里的几何尺寸转成 MuJoCo XML。
 
@@ -934,7 +1011,7 @@ argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sens
 
 > 把原项目里的抽象几何参数，转换成仿真世界里真正的 body、joint、geom、site。
 
-### 11.4 `sim/build_floating_base_mjcf.py`
+### 11.6 `sim/build_floating_base_mjcf.py`
 
 这个文件在固定机身基础上又加了几件关键东西：
 
@@ -945,7 +1022,7 @@ argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sens
 
 这意味着浮动机身版本已经不再只是“视觉演示”，而是一个带基本动力学和测量链的学习环境。
 
-### 11.5 为什么“状态回灌”是当前版本最大的升级
+### 11.7 为什么“状态回灌”仍然是当前版本最大的底层升级
 
 最早那种纯开环方式的问题是：
 
@@ -978,9 +1055,11 @@ argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sens
 因为它几乎把整个项目的关键层都接起来了：
 
 - 参数层：`parse_args()`
+- 任务层：`TaskScheduler + TaskCommandSource`
 - 控制层：`Controller`
 - 状态层：`State`
 - 几何层：`IK`
+- 适配层：`SimObservationInterface / SimIMU / SimHardwareInterface / SimControlClock`
 - 动力学层：MuJoCo
 - 传感器层：MuJoCo sensors
 - 执行层：PD torque
@@ -994,7 +1073,8 @@ argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sens
 
 这个脚本把参数分成几大类：
 
-- 模式与时长：`mode`、`duration`
+- 模式、任务与时长：`mode`、`task_sequence`、`duration`
+- 任务层过渡参数：`transition_time`、`activation_delay`
 - 速度与姿态命令：`x_vel / y_vel / yaw_rate / height / pitch / roll`
 - 低层执行参数：`kp / kd / torque_limit`
 - 步态参数：`z_clearance / overlap_time / swing_time / settle`
@@ -1003,6 +1083,8 @@ argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sens
 - 观测参数：`telemetry_interval / plot_window / no_plots`
 
 这几乎等于把一整套四足实验的“调试面板”变成了命令行。
+
+尤其是 `task_sequence + transition_time` 这一组参数，意味着你不再只能测试“一个固定模式”，而是能直接在入口层写一小段任务脚本。
 
 ### 12.3 `initialize_controller()`：让原始控制器先有一份可用初态
 
@@ -1019,8 +1101,9 @@ argparse -> Command -> Controller -> joint target -> PD torque -> MuJoCo -> sens
 
 - 先让 `joint_angles` 和 `foot_locations` 有一份合理初值
 - 这样 MuJoCo 才能被放到一个合理的初始姿态
+- 然后再把 `behavior_state` 设成 `DEACTIVATED`，让仿真里的任务层也遵循“先激活、再进入动作”的节奏
 
-### 12.4 `set_initial_pose()`：把控制器姿态映射到 MuJoCo 初态
+### 12.4 `SimHardwareInterface.set_initial_pose()`：把控制器姿态映射到 MuJoCo 初态
 
 这一步桥接的是：
 
@@ -1035,7 +1118,7 @@ control state
 - 一开始就腾空太高
 - 第一拍接触冲击过大
 
-### 12.5 `sync_state_from_sim()`：让控制器不再只活在规划里
+### 12.5 `SimObservationInterface.sync_state()`：让控制器不再只活在规划里
 
 这是当前脚本最重要的函数之一。
 
@@ -1050,7 +1133,39 @@ MuJoCo measured state
 
 这代表整个项目已经从“纯规划开环演示”迈向了“最小状态反馈闭环”。
 
-### 12.6 `apply_feedback()`：为什么不直接改 `Controller`
+### 12.6 `TaskScheduler + TaskCommandSource`：为什么当前版本不再直接 `make_command`
+
+旧版思路更像：
+
+```flow
+argparse
+  -> 一次性固定命令
+  -> Controller
+```
+
+当前版本则是：
+
+```flow
+task sequence
+  -> TaskScheduler
+  -> TaskCommandSource
+  -> Command
+  -> Controller
+```
+
+这样做的好处是：
+
+- `Controller` 仍然只看到原生 `Command`
+- 但仿真入口现在可以表达完整任务节奏，而不只是“一直 trot”
+- 局部参数覆盖和段间平滑都可以放在任务层解决
+- 仿真主循环更接近“上层任务 -> 控制器 -> 低层 -> 传感器”的真实系统分层
+
+在当前实现里，`TaskCommandSource` 还做了两件非常重要的事：
+
+- 把每个任务段的 gait 参数写回 `Configuration`
+- 在需要时平滑插值命令参数、反馈增益和 gait 参数
+
+### 12.7 `apply_feedback()`：为什么不直接改 `Controller`
 
 这里做了一个非常聪明、非常工程化的设计：
 
@@ -1063,7 +1178,22 @@ MuJoCo measured state
 - 你能很直观地做“入口级反馈增强”
 - 非常适合学习和快速试验
 
-### 12.7 `compute_pd_torques()`：仿真里的低层执行器代理
+而且在当前版本里，这些反馈增益也已经可以由任务层分段覆盖：
+
+- `attitude_kp`
+- `attitude_kd`
+- `velocity_kp`
+
+所以现在的 `apply_feedback()` 更像是：
+
+```flow
+当前 task step
+  -> 给出本段反馈增益
+  -> 对 Command 做轻量外环修正
+  -> 再交给 Controller
+```
+
+### 12.8 `SimHardwareInterface.step()`：仿真里的低层执行器代理
 
 原项目最终输出的是关节角；
 MuJoCo 当前执行的是力矩。
@@ -1082,7 +1212,15 @@ tau = kp * (q_des - q) + kd * (0 - dq)
 
 - “我施加多少关节力矩去跟到那个角度”
 
-### 12.8 `viewer + telemetry + plot`
+不过现在这一步已经不只是单个函数，而是：
+
+- `set_actuator_postions()` 负责更新目标关节角
+- `_compute_pd_torques()` 负责算每拍力矩
+- `step(control_interval)` 负责在 MuJoCo 里做多个仿真子步
+
+也就是说，低层执行器代理已经被封装到了 `SimHardwareInterface` 里。
+
+### 12.9 `viewer + telemetry + plot`
 
 这部分不是附属功能，而是学习系统的仪表盘。
 
@@ -1097,6 +1235,20 @@ tau = kp * (q_des - q) + kd * (0 - dq)
 - 姿态稳不稳
 - 速度跟不跟得上
 - gait 时序是不是合理
+
+除此之外，当前脚本还会打印：
+
+- `task sequence`
+- `activation delay`
+- `default transition`
+- `task step`
+- `behavior` 状态切换
+
+这让你在做任务序列实验时，更容易看清：
+
+- 当前处在哪个任务段
+- 当前是否已经从 `DEACTIVATED` 进入 `REST / TROT`
+- 参数突变究竟来自任务切换还是控制不稳
 
 所以当你调参数时，这三项往往比“看机器人好像在走”更有价值。
 
@@ -1179,6 +1331,24 @@ python sim/run_floating_base.py --mode trot --plot-window 8 --plot-update-interv
 - 低层刚度
 - 低层阻尼
 - 状态回灌强度
+
+### 13.6 第六步：开始做任务序列实验
+
+当你把单一模式跑顺以后，最值得做的升级实验就是任务序列。
+
+例如：
+
+```bash
+python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0,rest"
+python sim/run_floating_base.py --duration 8 --transition-time 0.3 --task-sequence "rest:1.0,trot:4.0,rest"
+python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@vx=0.08;z_clearance=0.04;attitude_kp=0.03,rest"
+```
+
+你在这一步主要观察：
+
+- 段切换时 `behavior` 是否和预期一致
+- `transition_time` 是否能减小切换突兀感
+- 某一段的局部参数是否真的只在该段生效
 
 ---
 
@@ -1293,6 +1463,21 @@ python sim/run_floating_base.py --mode trot --plot-window 8 --plot-update-interv
 ```
 
 因为如果 gait 本身不合理，后面的闭环只是在帮一个坏轨迹擦屁股。
+
+### 14.8 现象：任务段切换时动作很突兀
+
+优先怀疑：
+
+- `transition_time` 为 0 或太小
+- 相邻两段的 `vx / height / pitch` 跳变太大
+- 相邻两段的 `z_clearance / overlap_time / swing_time` 差异太大
+
+优先尝试：
+
+- 增大全局 `--transition-time`
+- 或者只给某一段增加 `transition_time`
+- 先减小相邻两段参数差值，再逐渐拉开
+- 观察 `task step` 打印和 `Pitch / Forward Vx / Contacts` 曲线是否同步变平滑
 
 ---
 
@@ -1471,18 +1656,24 @@ args = parse_args()
 build_xml_if_needed()
 model, data = load_mujoco()
 config, controller, state = initialize_controller(args)
-set_initial_pose(model, data, config, state, args)
+observation = SimObservationInterface(model, data)
+imu = SimIMU(observation)
+hardware = SimHardwareInterface(model, data, kp, kd, torque_limit)
+clock = SimControlClock(sim_dt, control_dt)
+command_source = TaskCommandSource(args)
+hardware.set_initial_pose(state.joint_angles, base_z)
 
 for each control cycle:
-    sync_state_from_sim(state, model, data, ...)
-    command = make_command(args, mode, first_trot_step)
-    command = apply_feedback(command, state, args, mode)
+    observation.sync_state(state, ...)
+    state.quat_orientation = imu.read_orientation()
+    command_source.apply_step_config(config, state, sim_time)
+    command = command_source.get_command(state, sim_time)
+    feedback_params = command_source.feedback_params(sim_time)
+    command = apply_feedback(command, state, args, mode, feedback_params)
     controller.run(state, command)
-    q_des = joint_target_array(state.joint_angles)
-    tau = compute_pd_torques(model, data, q_des, kp, kd, torque_limit)
-    data.ctrl[:] = tau
-    mujoco.mj_step(model, data)
-    viewer.sync()
+    hardware.set_actuator_postions(state.joint_angles)
+    hardware.step(clock.control_interval)
+    viewer.sync() / telemetry / plots
 ```
 
 这两段伪代码如果你都看懂了，说明你已经真正把“项目主链”抓住了。

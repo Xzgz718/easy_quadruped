@@ -8,10 +8,10 @@ import mujoco
 import numpy as np
 from transforms3d.quaternions import quat2mat
 
+from sim.model_constants import FOOT_SITE_NAMES, JOINT_NAMES, LEG_SPECS
 from sim.task_scheduler import TaskScheduler
 from src.Command import Command
 from src.State import BehaviorState, State
-from sim.build_fixed_base_mjcf import FOOT_SITE_NAMES, JOINT_NAMES, LEG_SPECS
 
 if TYPE_CHECKING:
     from argparse import Namespace

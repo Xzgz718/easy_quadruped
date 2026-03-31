@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pupper.Config import Configuration, SimulationConfig
-from sim.build_fixed_base_mjcf import JOINT_NAMES, LEG_SPECS
+from sim.model_constants import JOINT_NAMES, LEG_SPECS
 
 
 def _fmt(values) -> str:

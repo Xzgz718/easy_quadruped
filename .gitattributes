@@ -14,6 +14,8 @@
 *.xml text eol=lf
 *.csv text eol=lf
 *.sh text eol=lf
+*.excalidraw text eol=lf
+
 
 # Windows-native scripts may keep CRLF.
 *.bat text eol=crlf

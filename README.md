@@ -1,61 +1,81 @@
-# Stanford Quadruped
+# Stanford Quadruped Fork
 
-# End-of-life notice
-Thank you everyone for your interest and support over the last 5 years for this project! 
+基于 Stanford Student Robotics 的 `StanfordQuadruped` 项目做的二次开发版本，当前公开快照主要聚焦在控制器核心、运动学与 MuJoCo 仿真链路，而不是上游仓库的完整镜像。
 
-We are hard at work building the new version, Pupper v3, and so would like to stop supporting this project (Pupper v1). Thanks for your understanding! Pupper v3 is fully open source and build instructions will be released in the coming months. 
+原始项目：
+https://github.com/stanfordroboticsclub/StanfordQuadruped
 
-![20240701_232332](https://github.com/stanfordroboticsclub/StanfordQuadruped/assets/1295426/96d09d2b-9d99-4a0b-b30b-6e317d7b286b)
+说明：
 
-![20240701_231506](https://github.com/stanfordroboticsclub/StanfordQuadruped/assets/1295426/d9875ccf-be3f-496c-a22b-aaab4f5fc9fd)
+- 本仓库是独立维护的 fork / derivative work。
+- 本仓库不是 Stanford Student Robotics 的官方发布版本。
+- `StanfordQuadruped` 这一名称在这里仅用于说明上游来源与兼容背景，不代表官方背书。
 
-![IMG_2942](https://github.com/stanfordroboticsclub/StanfordQuadruped/assets/1295426/c6f1de38-a013-402b-a1e2-f924573ec48e)
+## 当前公开快照包含什么
 
-Quick specs for Pupper v3
-* Powerful 400W GIM4305 brushless motors
-* Raspberry Pi 5
-* Reinforcement learning locomotion policy out-of-the-box
-* Luxonis SR depth camera
-* LCD screen for debugging and facial expressions
-* Roughly $1000 BOM
+- `src/`
+  - 步态调度、支撑相控制、摆腿控制、状态机与命令结构。
+- `pupper/`
+  - 机器人配置、逆运动学、舵机标定参数以及硬件接口抽象。
+- `sim/`
+  - MuJoCo 模型生成脚本、浮动机身闭环仿真、观测/执行器适配层、任务调度器。
+- `calibrate_servos.py`
+  - 面向实机的舵机零位标定脚本。
 
+## 这个公开版刻意没有带上的内容
 
-## Overview
-This repository hosts the code for Stanford Pupper and Stanford Woofer, Raspberry Pi-based quadruped robots that can trot, walk, and jump. 
+- 本地编辑器配置、日志、缓存文件。
+- 一次性分析材料、课件导出物、个人工作草稿。
+- 上游仓库里与当前公开目标不直接相关的部署残留文件。
 
-![Pupper CC Max Morse](https://live.staticflickr.com/65535/49614690753_78edca83bc_4k.jpg)
+这样做是为了让公开仓库更聚焦，也避免把明显的本地环境痕迹一起推上去。
 
-Video of pupper in action: https://youtu.be/NIjodHA78UE
+## 快速开始
 
-Project page: https://stanfordstudentrobotics.org/pupper
+建议在仓库根目录执行。
 
-Documentation & build guide: https://pupper.readthedocs.io/en/latest/
+最少依赖：
 
-## How it works
-![Overview diagram](imgs/diagram1.jpg)
-The main program is ```run_robot.py``` which is located in this directory. The robot code is run as a loop, with a joystick interface, a controller, and a hardware interface orchestrating the behavior. 
+```bash
+pip install mujoco transforms3d numpy
+```
 
-The joystick interface is responsible for reading joystick inputs from a UDP socket and converting them into a generic robot ```command``` type. A separate program, ```joystick.py```, publishes these UDP messages, and is responsible for reading inputs from the PS4 controller over bluetooth. The controller does the bulk of the work, switching between states (trot, walk, rest, etc) and generating servo position targets. A detailed model of the controller is shown below. The third component of the code, the hardware interface, converts the position targets from the controller into PWM duty cycles, which it then passes to a Python binding to ```pigpiod```, which then generates PWM signals in software and sends these signals to the motors attached to the Raspberry Pi.
-![Controller diagram](imgs/diagram2.jpg)
-This diagram shows a breakdown of the robot controller. Inside, you can see four primary components: a gait scheduler (also called gait controller), a stance controller, a swing controller, and an inverse kinematics model. 
+生成浮动机身 MuJoCo XML：
 
-The gait scheduler is responsible for planning which feet should be on the ground (stance) and which should be moving forward to the next step (swing) at any given time. In a trot for example, the diagonal pairs of legs move in sync and take turns between stance and swing. As shown in the diagram, the gait scheduler can be thought of as a conductor for each leg, switching it between stance and swing as time progresses. 
+```bash
+python -m sim.build_floating_base_mjcf
+```
 
-The stance controller controls the feet on the ground, and is actually quite simple. It looks at the desired robot velocity, and then generates a body-relative target velocity for these stance feet that is in the opposite direction as the desired velocity. It also incorporates turning, in which case it rotates the feet relative to the body in the opposite direction as the desired body rotation. 
+运行浮动机身闭环仿真：
 
-The swing controller picks up the feet that just finished their stance phase, and brings them to their next touchdown location. The touchdown locations are selected so that the foot moves the same distance forward in swing as it does backwards in stance. For example, if in stance phase the feet move backwards at -0.4m/s (to achieve a body velocity of +0.4m/s) and the stance phase is 0.5 seconds long, then we know the feet will have moved backwards -0.20m. The swing controller will then move the feet forwards 0.20m to put the foot back in its starting place. You can imagine that if the swing controller only put the leg forward 0.15m, then every step the foot would lag more and more behind the body by -0.05m. 
+```bash
+python sim/run_floating_base.py --mode trot --duration 20
+```
 
-Both the stance and swing controllers generate target positions for the feet in cartesian coordinates relative the body center of mass. It's convenient to work in cartesian coordinates for the stance and swing planning, but we now need to convert them to motor angles. This is done by using an inverse kinematics model, which maps between cartesian body coordinates and motor angles. These motor angles, also called joint angles, are then populated into the ```state``` variable and returned by the model. 
+无界面快速跑一个任务序列：
 
+```bash
+python sim/run_floating_base.py --headless --duration 8 --task-sequence "rest:1.0,trot:4.0,rest"
+```
 
-## How to Build Pupper
-Main documentation: https://pupper.readthedocs.io/en/latest/
+更详细的仿真用法见 `sim/README.md`。
 
-You can find the bill of materials, pre-made kit purchasing options, assembly instructions, software installation, etc at this website.
+## 仓库结构
 
+- `src/Controller.py`
+  - 主控制器，整合步态、足端轨迹与逆运动学调用。
+- `pupper/Config.py`
+  - 控制参数、几何尺寸、舵机与仿真配置。
+- `sim/run_floating_base.py`
+  - 当前公开快照的主要仿真入口。
+- `sim/sim_robot.py`
+  - MuJoCo 与控制器状态结构之间的桥接层。
+- `sim/task_scheduler.py`
+  - 高层任务序列和参数过渡逻辑。
 
-## Help
-- Feel free to raise an issue (https://github.com/stanfordroboticsclub/StanfordQuadruped/issues/new/choose) or email me at nathankau [at] stanford [dot] edu
-- We also have a Google group set up here: https://groups.google.com/forum/#!forum/stanford-quadrupeds
+## 许可证与声明
 
+上游项目采用 MIT 许可证，本仓库保留了原始许可证文本与版权声明，见 `LICENSE`。
+
+本仓库中的二次开发部分，除非某个文件或目录另有声明，也按 MIT 许可证公开。更完整的来源说明和非官方声明见 `NOTICE`。
 

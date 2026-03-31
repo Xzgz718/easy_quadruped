@@ -1,39 +1,39 @@
 # MuJoCo Simulation Guide
 
-`sim/` 目录提供了一个围绕 `pupper/` 控制器搭建的 MuJoCo 仿真环境，目标不是复刻整套树莓派实机软件，而是把已有的步态控制、逆运动学和状态机放进一个更容易观察和调参的仿真闭环里。
+`sim/` 目录提供了一个围绕 `src/` 控制器和 `pupper/` 运动学配置搭建的 MuJoCo 仿真环境。当前公开快照的主要可运行入口是 `run_floating_base.py`，目标是把已有的步态控制、逆运动学和状态机放进一个便于观察和调参的闭环里。
 
-当前目录包含两条仿真路径：
+## 当前可用的仿真入口
 
-- 固定机身版：`run_fixed_base.py`
-  - 机身不参与动力学，只把控制器输出的关节角直接写进 MuJoCo 关节位置。
-  - 适合检查逆运动学、足端轨迹和控制器输出是否合理。
-- 浮动机身版：`run_floating_base.py`
-  - 机身使用 `freejoint`，关节由 PD 力矩驱动。
-  - 通过 `SimObservationInterface` 把 MuJoCo 里的姿态、速度、触地和关节状态写回 `State`。
-  - 通过 `TaskScheduler` 在本地生成任务序列，不依赖 UDP 手柄输入。
+- `run_floating_base.py`
+  - 使用 `freejoint` 机身和关节 PD 力矩控制。
+  - 通过 `SimObservationInterface` 把 MuJoCo 中的姿态、速度、触地和关节状态回填到 `State`。
+  - 通过 `TaskScheduler` 在本地生成高层任务序列，不依赖 UDP 手柄输入。
+
+说明：
+
+- 当前公开快照没有独立的 `run_fixed_base.py`。
+- `build_fixed_base_mjcf.py` 仍然保留，用于生成固定机身 XML 以及复用腿部和关节常量定义。
 
 ## 目录结构
 
 - `build_fixed_base_mjcf.py`
-  - 根据 `pupper.Config.Configuration` 和 `pupper.Config.SimulationConfig` 生成固定机身 XML。
+  - 生成固定机身 XML，并提供共享的腿部规格和关节命名。
 - `build_floating_base_mjcf.py`
-  - 生成带 `freejoint`、motor、sensor 和触地 site 的浮动机身 XML。
-- `run_fixed_base.py`
-  - 最小桥接版：`Controller -> IK -> qpos`。
+  - 生成带 `freejoint`、`motor`、`sensor` 和触地 site 的浮动机身 XML。
 - `run_floating_base.py`
-  - 动力学版：`TaskScheduler -> Controller -> IK -> PD torque -> MuJoCo`。
+  - 闭环动力学仿真入口：`TaskScheduler -> Controller -> IK -> PD torque -> MuJoCo -> Observation -> State`。
 - `sim_robot.py`
-  - 仿真侧的 IMU、硬件接口、观测接口、控制时钟和任务命令源适配层。
+  - 仿真侧 IMU、硬件接口、观测同步和控制时钟适配层。
 - `task_scheduler.py`
-  - 任务序列解析、分段参数覆盖和平滑过渡逻辑。
+  - 任务序列解析、参数覆盖和平滑过渡逻辑。
 - `pupper_fixed.xml`
-  - 固定机身模型，通常由构建脚本自动生成或更新。
+  - 固定机身模型快照，通常由脚本生成或更新。
 - `pupper_floating.xml`
-  - 浮动机身模型，通常由构建脚本自动生成或更新。
+  - 浮动机身模型快照，通常由脚本生成或更新。
 
 ## 环境要求
 
-建议在仓库根目录执行命令：`F:\stanford_quadruped`
+建议在仓库根目录执行命令。
 
 最少需要的 Python 依赖：
 
@@ -41,10 +41,7 @@
 pip install mujoco transforms3d numpy
 ```
 
-说明：
-
-- `run_fixed_base.py` 和 `run_floating_base.py` 会自行把仓库根目录加入 `sys.path`。
-- `build_*.py` 直接按脚本路径执行时不一定能解析到 `pupper` 包，最稳妥的方式是使用模块形式：
+构建脚本建议使用模块方式执行：
 
 ```bash
 python -m sim.build_fixed_base_mjcf
@@ -56,57 +53,18 @@ python -m sim.build_floating_base_mjcf
 ### 1. 重新生成 XML
 
 ```bash
-python -m sim.build_fixed_base_mjcf
 python -m sim.build_floating_base_mjcf
 ```
 
-也可以在运行脚本时附带 `--rebuild` 自动重建。
-
-### 2. 固定机身仿真
-
-固定机身版把控制器算出的目标角直接写入关节位置，不走力矩控制。
+如果你也想保留固定机身 XML 快照，可以额外执行：
 
 ```bash
-python sim/run_fixed_base.py --headless --duration 2 --mode rest --rebuild
-python sim/run_fixed_base.py --headless --duration 2 --mode trot
-python sim/run_fixed_base.py --mode trot --duration 20
+python -m sim.build_fixed_base_mjcf
 ```
 
-常用参数：
+也可以在运行仿真时附带 `--rebuild` 自动重建浮动机身 XML。
 
-- `--mode {rest,trot}`
-- `--duration`
-- `--headless`
-- `--rebuild`
-- `--x-vel`
-- `--y-vel`
-- `--yaw-rate`
-- `--height`
-- `--pitch`
-- `--roll`
-
-几个例子：
-
-```bash
-python sim/run_fixed_base.py --mode rest --pitch 0.2 --roll 0.1
-python sim/run_fixed_base.py --mode trot --x-vel 0.15 --y-vel 0.05
-python sim/run_fixed_base.py --mode trot --yaw-rate 0.8
-```
-
-### 3. 浮动机身仿真
-
-浮动机身版更接近“控制器驱动真实机器人”的链路：
-
-```text
-TaskScheduler
-  -> TaskCommandSource
-  -> Controller
-  -> four_legs_inverse_kinematics
-  -> SimHardwareInterface(PD torque)
-  -> MuJoCo
-  -> SimObservationInterface
-  -> State
-```
+### 2. 浮动机身闭环仿真
 
 常用运行方式：
 
@@ -119,9 +77,9 @@ python sim/run_floating_base.py --mode rest
 
 浮动机身版的默认行为：
 
-- `--mode rest` 时默认只保持静止。
+- `--mode rest` 时默认保持静止。
 - `--mode trot` 且 `--settle > 0` 时，默认任务序列是 `rest:settle -> trot`。
-- `--task-sequence` 一旦提供，会覆盖 `--mode` 和 `--settle` 对任务流程的默认调度。
+- 一旦提供 `--task-sequence`，就会覆盖 `--mode` 和 `--settle` 的默认调度逻辑。
 
 在 viewer 模式下，右侧会尝试显示 3 个实时曲线面板：
 
@@ -156,7 +114,7 @@ mode[:duration][@key=value;key=value...],mode[:duration],...
 - 持续时间可以写成 `inf` 或 `forever`
 - 参数列表放在 `@` 后面，多个参数用 `;` 或 `|` 分隔
 - 全局 `--transition-time` 是默认段间过渡时间
-- 某一段也可以单独写 `transition_time=...` 覆盖默认值
+- 某一段可以单独写 `transition_time=...` 覆盖默认值
 
 示例：
 
@@ -189,9 +147,7 @@ python sim/run_floating_base.py --duration 8 --task-sequence "rest:1.0,trot:4.0@
 - 过渡参数
   - `transition_time` / `transition` / `blend_time` / `blend`
 
-## 浮动机身版的重要参数
-
-除了固定机身版已有的 `--mode`、`--duration`、`--height`、`--pitch`、`--roll` 等参数外，浮动机身版还提供以下关键调参入口。
+## 重要参数
 
 控制与约束：
 
@@ -240,44 +196,6 @@ python sim/run_floating_base.py --mode rest --height -0.17 --base-z 0.18
 python sim/run_floating_base.py --mode trot --telemetry-interval 0
 ```
 
-## 当前实现细节
-
-### 固定机身版
-
-- 使用 `Controller` 和 `four_legs_inverse_kinematics`
-- 把控制器输出的 12 个关节角转换为 MuJoCo 关节位置
-- 第三个关节写入的是相对膝角：`knee = alpha[2] - alpha[1]`
-- 每一步通过 `pose_error()` 对比 MuJoCo 足端位置和控制器里的 `state.foot_locations`
-
-### 浮动机身版
-
-- `SimHardwareInterface` 维护目标关节位置，并用 PD 力矩追踪
-- `SimObservationInterface` 读取：
-  - 机身位置、姿态、线速度、角速度
-  - 四足足端位置
-  - 四足触地力
-  - 12 个关节角和关节速度
-- 观测会写回 `State`
-  - `body_position`
-  - `body_velocity`
-  - `angular_velocity`
-  - `measured_foot_locations`
-  - `measured_joint_angles`
-  - `measured_joint_velocities`
-  - `foot_forces`
-  - `contact_estimate`
-- 足端状态融合是分腿做的：
-  - 触地腿使用 `stance_state_blend`
-  - 摆动腿使用 `swing_state_blend`
-- 当任务段切换且模式变化时，会把 `state.ticks` 置零，便于控制器重新进入对应步态阶段
-
-### 失稳保护
-
-浮动机身循环里有一个简单的仿真稳定性保护：
-
-- `data.qpos` 出现非有限值会报错
-- 机身 `z` 低于 `0.05` 会报错并中断仿真
-
 ## 建议的阅读顺序
 
 如果你想理解 `sim/` 的工作方式，建议按下面顺序读：
@@ -294,5 +212,4 @@ python sim/run_floating_base.py --mode trot --telemetry-interval 0
 
 - 该目录服务的是 `pupper/` 这条主线，不是 `woofer/`
 - 文档中的命令默认都假设当前工作目录是仓库根目录
-- 如果只是想检查控制器和逆运动学，优先用固定机身版
-- 如果想观察接触、姿态、速度反馈和参数过渡，再切到浮动机身版
+- 如果你需要固定机身模型，可以生成 `pupper_fixed.xml`，但当前公开快照没有配套的固定机身运行脚本

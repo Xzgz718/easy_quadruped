@@ -1,0 +1,20 @@
+NOTICE
+
+This repository contains material derived from the following upstream project:
+
+  StanfordQuadruped
+  Copyright (c) 2020 Stanford Student Robotics
+  https://github.com/stanfordroboticsclub/StanfordQuadruped
+
+The upstream project is licensed under the MIT License. The required upstream
+copyright notice and permission notice are preserved in the file `LICENSE`.
+
+This repository is an independently maintained fork / derivative work. It is
+not an official Stanford Student Robotics release, and no endorsement by
+Stanford Student Robotics is implied.
+
+Unless otherwise noted in a file or directory, modifications in this fork are
+also distributed under the MIT License.
+
+The use of the `StanfordQuadruped` name in this repository is solely to
+identify the upstream source project and compatibility context.

@@ -11,13 +11,10 @@
 
 说明：
 
-- 当前公开快照没有独立的 `run_fixed_base.py`。
-- `build_fixed_base_mjcf.py` 仍然保留，用于生成固定机身 XML 以及复用腿部和关节常量定义。
+- 当前公开快照以浮动机身闭环仿真为主。
 
 ## 目录结构
 
-- `build_fixed_base_mjcf.py`
-  - 生成固定机身 XML，并提供共享的腿部规格和关节命名。
 - `build_floating_base_mjcf.py`
   - 生成带 `freejoint`、`motor`、`sensor` 和触地 site 的浮动机身 XML。
 - `run_floating_base.py`
@@ -26,8 +23,6 @@
   - 仿真侧 IMU、硬件接口、观测同步和控制时钟适配层。
 - `task_scheduler.py`
   - 任务序列解析、参数覆盖和平滑过渡逻辑。
-- `pupper_fixed.xml`
-  - 固定机身模型快照，通常由脚本生成或更新。
 - `pupper_floating.xml`
   - 浮动机身模型快照，通常由脚本生成或更新。
 
@@ -44,7 +39,6 @@ pip install mujoco transforms3d numpy
 构建脚本建议使用模块方式执行：
 
 ```bash
-python -m sim.build_fixed_base_mjcf
 python -m sim.build_floating_base_mjcf
 ```
 
@@ -54,12 +48,6 @@ python -m sim.build_floating_base_mjcf
 
 ```bash
 python -m sim.build_floating_base_mjcf
-```
-
-如果你也想保留固定机身 XML 快照，可以额外执行：
-
-```bash
-python -m sim.build_fixed_base_mjcf
 ```
 
 也可以在运行仿真时附带 `--rebuild` 自动重建浮动机身 XML。
@@ -212,4 +200,3 @@ python sim/run_floating_base.py --mode trot --telemetry-interval 0
 
 - 该目录服务的是 `pupper/` 这条主线，不是 `woofer/`
 - 文档中的命令默认都假设当前工作目录是仓库根目录
-- 如果你需要固定机身模型，可以生成 `pupper_fixed.xml`，但当前公开快照没有配套的固定机身运行脚本

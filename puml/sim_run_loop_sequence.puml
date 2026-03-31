@@ -1,0 +1,118 @@
+@startuml
+title sim/run_floating_base.py Main Loop Sequence\n(entry: run_loop())
+
+skinparam shadowing false
+skinparam defaultFontName Consolas
+skinparam wrapWidth 240
+skinparam maxMessageSize 220
+skinparam ArrowThickness 2
+skinparam SequenceArrowThickness 2
+skinparam ParticipantPadding 24
+skinparam BoxPadding 12
+skinparam ResponseMessageBelowArrow true
+skinparam sequenceMessageAlign center
+
+caption Read this as the per-control-tick loop inside sim/run_floating_base.py.\nThe key idea is: sync observation -> update task step -> build command -> optional feedback -> controller -> PD actuation -> MuJoCo step -> telemetry / plots / safety check.
+
+actor "CLI / main()\nsim/run_floating_base.py" as Main
+database "State\nsrc/State.py" as State
+control "TaskCommandSource\nsim/sim_robot.py" as CmdSource
+control "SimObservationInterface\nsim/sim_robot.py" as Obs
+control "SimIMU\nsim/sim_robot.py" as IMU
+control "Controller\nsrc/Controller.py" as Controller
+control "SimHardwareInterface\nsim/sim_robot.py" as HW
+control "SimControlClock\nsim/sim_robot.py" as Clock
+entity "MuJoCo\nMjModel + MjData" as MJ
+boundary "Viewer / plots /\ntelemetry" as Viz
+
+autonumber
+
+Main -> Controller : initialize_controller(args)
+Main -> Obs : create observation interface
+Main -> IMU : create imu adapter
+Main -> HW : create PD actuator adapter\n(kp, kd, torque_limit)
+Main -> Clock : create control clock
+Main -> CmdSource : create command source\n(task sequence / mode / settle)
+Main -> HW : set_initial_pose(state.joint_angles, base_z)
+Main -> Obs : sync_state(state, stance_state_blend,\nswing_state_blend, contact_threshold)
+Obs -> State : initial measurement write-back
+Main -> IMU : read_orientation()
+IMU --> Main : quat
+Main -> State : write quat_orientation
+
+loop for tick_index in range(total_ticks)
+  alt viewer exists and closed
+    Main --> Main : break loop
+  end
+
+  Main -> Clock : viewer_lock()
+  activate Clock
+  Clock --> Main : lock context
+  deactivate Clock
+
+  Main -> Obs : sync_state(state, blends,\ncontact_threshold)
+  Obs -> State : body / joint / foot /\ncontact estimate update
+
+  Main -> IMU : read_orientation()
+  IMU --> Main : quat
+  Main -> State : quat_orientation = quat
+
+  Main -> CmdSource : apply_step_config(config, state, sim_time)
+  CmdSource -> State : maybe reset ticks\nwhen task mode changes
+  CmdSource --> Main : step_changed?, rendered_step
+
+  Main -> CmdSource : get_command(state, sim_time)
+  CmdSource --> Main : Command or None
+
+  alt command is not None
+    Main -> CmdSource : target_mode(sim_time)
+    CmdSource --> Main : mode
+    Main -> CmdSource : feedback_params(sim_time)
+    CmdSource --> Main : attitude_kp/kd,\nvelocity_kp
+    Main -> Main : apply_feedback(command,\nstate, args, mode,\nfeedback_params)
+  else waiting / inactive
+    Main --> Main : skip controller this tick
+  end
+
+  alt command is not None
+    Main -> Controller : run(state, command)
+    Controller -> State : desired foot_locations,\njoint_angles,\nbehavior_state,\nticks
+    Main -> HW : set_actuator_postions(state.joint_angles)
+  end
+
+  alt live plots enabled
+    Main -> Viz : record_plot_sample(sim_time, state)
+  end
+
+  alt telemetry interval reached
+    Main -> Obs : telemetry_line()
+    Obs --> Main : formatted telemetry
+    Main -> Viz : print telemetry
+  end
+
+  Main -> HW : step(clock.control_interval)
+  HW -> MJ : PD torque + mj_step()
+  MJ --> HW : updated qpos / qvel / sensordata
+
+  Main -> Obs : torso_pose()
+  Obs --> Main : pose / rotation
+  Main -> Main : update max_roll_pitch
+
+  alt viewer exists and plot window open
+    Main -> Viz : update_live_plots()
+  end
+
+  Main -> Clock : finish_tick()
+
+  alt non-finite qpos or torso z < 0.05
+    Main -> Main : raise RuntimeError\nSimulation became unstable
+  end
+end
+
+Main -> Obs : torso_pose()
+Obs --> Main : torso_end
+Main -> Obs : pose_error(state)
+Obs --> Main : final foot error
+Main -> Viz : print final summary\n(displacement, foot error,\ncontact forces, max roll/pitch)
+
+@enduml

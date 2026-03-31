@@ -1,0 +1,97 @@
+@startuml
+title Trot Runtime Pipeline\n(entry: src/Controller.py -> TROT branch)
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName Consolas
+skinparam wrapWidth 240
+skinparam maxMessageSize 220
+skinparam linetype ortho
+skinparam ArrowThickness 2
+skinparam nodesep 100
+skinparam ranksep 120
+left to right direction
+
+caption Main trot spine: Command + Config + State -> gait phase -> stance/swing foot planning -> body tilt compensation -> IK -> joint targets.\nThis figure is the most direct mental model for reading src/Controller.py.
+
+package "1. Inputs" {
+  component "Command\nvx vy yaw_rate\nheight pitch roll\nsrc/Command.py" as Command
+  database "State\nticks foot_locations\nquat_orientation\nsrc/State.py" as State
+  database "Configuration\ndt overlap_time swing_time\nalpha beta z_clearance\npupper/Config.py" as Config
+  component "Controller input bus" as InBus
+
+  Command -[hidden]down-> State
+  State -[hidden]right-> Config
+}
+
+package "2. Gait Phase Selection" {
+  component "Controller.run()\nTROT branch\nsrc/Controller.py" as Controller
+  component "GaitController\nphase_index()\nsubphase_ticks()\ncontacts()\nsrc/Gaits.py" as Gait
+  component "Contact mode bus\n(4 legs)" as ContactBus
+  component "Swing proportion bus" as SwingBus
+
+  Controller -[hidden]right-> Gait
+  Gait -[hidden]down-> ContactBus
+  ContactBus -[hidden]right-> SwingBus
+}
+
+package "3. Foot Target Generation" {
+  component "StanceController\nnext_foot_location()\nsrc/StanceController.py" as Stance
+  component "SwingController\nnext_foot_location()\nsrc/SwingLegController.py" as Swing
+  component "Per-leg foot target bus" as FootBus
+  component "state.foot_locations\n(3 x 4 desired feet)" as FootState
+
+  Stance -[hidden]right-> Swing
+  Swing -[hidden]down-> FootBus
+  FootBus -[hidden]down-> FootState
+}
+
+package "4. Body Rotation + IK" {
+  component "Desired body roll/pitch\nfrom command" as DesiredTilt
+  component "Measured tilt compensation\nroll pitch -> clipped correction\nsrc/Controller.py" as TiltComp
+  component "Rotated foot target bus" as RotBus
+  component "four_legs_inverse_kinematics()\npupper/Kinematics.py" as IK
+  component "state.joint_angles\n(3 x 4)" as JointAngles
+
+  DesiredTilt -[hidden]right-> TiltComp
+  TiltComp -[hidden]down-> RotBus
+  RotBus -[hidden]down-> IK
+  IK -[hidden]down-> JointAngles
+}
+
+Command --> InBus
+State --> InBus
+Config --> InBus
+InBus --> Controller : controller inputs
+
+Controller --> Gait : query current phase\nfrom state.ticks
+Gait --> ContactBus : stance / swing per leg
+Gait --> SwingBus : subphase_ticks / swing_ticks
+
+ContactBus --> Stance : legs with contact_mode = 1
+ContactBus --> Swing : legs with contact_mode = 0
+Command --> Stance : horizontal_velocity\nyaw_rate\nheight
+State --> Stance : current foot z / state.height
+Config --> Stance : dt z_time_constant
+
+Command --> Swing : vx vy yaw_rate\nheight
+State --> Swing : current foot location
+Config --> Swing : alpha beta\nstance_ticks swing_ticks\nz_clearance default_stance
+SwingBus --> Swing : swing_prop
+
+Stance --> FootBus : stance targets
+Swing --> FootBus : swing targets
+FootBus --> FootState : merge 4 legs
+
+Command --> DesiredTilt : roll pitch
+State --> TiltComp : measured quat_orientation
+FootState --> DesiredTilt : euler2mat(command)\napply desired body pose
+DesiredTilt --> RotBus : rotated feet
+TiltComp --> RotBus : IMU tilt compensation
+RotBus --> IK : final body-frame foot targets
+Config --> IK : geometry
+IK --> JointAngles : 12 joint angles
+JointAngles --> State : write desired joints
+
+@enduml

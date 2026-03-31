@@ -1,0 +1,76 @@
+@startuml
+title Controller.run() Step-by-Step Sequence\n(main trot path inside the runtime loop)
+
+skinparam shadowing false
+skinparam defaultFontName Consolas
+skinparam wrapWidth 240
+skinparam maxMessageSize 220
+skinparam ArrowThickness 2
+skinparam SequenceArrowThickness 2
+skinparam ParticipantPadding 24
+skinparam BoxPadding 12
+skinparam ResponseMessageBelowArrow true
+skinparam sequenceMessageAlign center
+
+caption Read this as the per-tick control sequence around src/Controller.py.\nThe runtime loop in run_robot.py or sim/run_floating_base.py prepares State + Command, then Controller.run() chooses the active branch.\nThis figure expands the TROT branch because that is the main locomotion path.
+
+actor "Runtime loop\nrun_robot.py /\nsim/run_floating_base.py" as Runtime
+database "State\nsrc/State.py" as State
+entity "Command\nsrc/Command.py" as Command
+control "Controller.run()\nsrc/Controller.py" as Controller
+control "GaitController\nsrc/Gaits.py" as Gait
+control "StanceController\nsrc/StanceController.py" as Stance
+control "SwingController\nsrc/SwingLegController.py" as Swing
+control "IK\npupper/Kinematics.py" as IK
+
+autonumber
+
+Runtime -> State : read current state\n(ticks, foot_locations,\nquat_orientation, behavior_state)
+Runtime -> Command : prepare desired motion\n(vx, vy, yaw, height,\npitch, roll, events)
+Runtime -> Controller : run(state, command)
+
+Controller -> Controller : update behavior_state\nfrom activate / trot / hop events
+
+alt behavior_state == TROT
+  Controller -> Gait : contacts(state.ticks)
+  Gait --> Controller : contact_modes[4]
+
+  loop for each leg_index = 0..3
+    alt contact_mode == 1 (stance leg)
+      Controller -> Stance : next_foot_location(leg, state, command)
+      Stance -> Stance : position_delta()\nuse -vx, -vy, yaw_rate,\nheight tracking
+      Stance --> Controller : stance foot target
+    else contact_mode == 0 (swing leg)
+      Controller -> Gait : subphase_ticks(state.ticks)
+      Gait --> Controller : subphase tick
+      Controller -> Swing : next_foot_location(swing_prop, leg,\nstate, command)
+      Swing -> Swing : raibert_touchdown_location()\nuse alpha, beta,\nstance_ticks, default_stance
+      Swing -> Swing : swing_height()\nuse z_clearance
+      Swing --> Controller : swing foot target
+    end
+  end
+
+  Controller -> State : write desired foot_locations
+  Controller -> Controller : apply desired body roll / pitch\nfrom command
+  Controller -> Controller : apply IMU tilt compensation\nclip measured roll / pitch
+  Controller -> IK : four_legs_inverse_kinematics(\nrotated_foot_locations, config)
+  IK --> Controller : 12 joint angles
+  Controller -> State : write joint_angles
+
+else behavior_state == REST
+  Controller -> Controller : default_stance + command.height\nsmoothed stance yaw\nbody rotation
+  Controller -> IK : inverse kinematics
+  IK --> Controller : 12 joint angles
+  Controller -> State : write joint_angles / foot_locations
+
+else behavior_state == HOP or FINISHHOP
+  Controller -> Controller : fixed hop foot pose
+  Controller -> IK : inverse kinematics
+  IK --> Controller : 12 joint angles
+  Controller -> State : write joint_angles / foot_locations
+end
+
+Controller -> State : ticks += 1\nstate.pitch = command.pitch\nstate.roll = command.roll\nstate.height = command.height
+Controller --> Runtime : updated State\n(desired feet, joints,\nbehavior_state, ticks)
+
+@enduml

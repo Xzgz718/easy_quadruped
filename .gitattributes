@@ -1,0 +1,30 @@
+# Normalize text files in the repository.
+* text=auto
+/.gitattributes text eol=lf
+
+# Keep source, docs, and diagram text files on LF across platforms.
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.puml text eol=lf
+*.svg text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+*.csv text eol=lf
+*.sh text eol=lf
+
+# Windows-native scripts may keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Common binary assets should never be line-normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary

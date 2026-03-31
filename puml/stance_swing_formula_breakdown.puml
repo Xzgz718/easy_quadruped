@@ -1,0 +1,99 @@
+@startuml
+title StanceController and SwingController Formula Breakdown\n(what the equations mean physically)
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName Consolas
+skinparam wrapWidth 240
+skinparam maxMessageSize 220
+skinparam linetype ortho
+skinparam ArrowThickness 2
+skinparam nodesep 100
+skinparam ranksep 120
+left to right direction
+
+caption Stance answers: "while the foot is on the ground, how should the body-relative foot position drift?"\nSwing answers: "while the foot is in the air, where should it land, and what arc should it follow?"
+
+package "1. Shared Inputs" {
+  component "command.horizontal_velocity\n[vx, vy]" as Vel
+  component "command.yaw_rate" as Yaw
+  component "command.height" as Height
+  database "state.foot_locations[:, leg]\ncurrent desired foot" as Foot
+  database "state.height\nstored previous body height" as StateHeight
+  component "config.dt" as Dt
+}
+
+package "2. StanceController\nsrc/StanceController.py" {
+  component "z = foot_location[2]" as StanceZ
+  component "v_xy = [\n -vx,\n -vy,\n (state.height - z)/z_time_constant\n]" as Vxy
+  component "delta_p = v_xy * dt" as DeltaP
+  component "delta_R = Rz(-yaw_rate * dt)" as DeltaR
+  component "new_foot = delta_R @ foot_location + delta_p" as StanceOut
+  component "Physical meaning\n- support leg stays on ground\n- in body frame foot sweeps backward\n- z converges toward commanded body height\n- yaw command rotates support pattern" as StanceMeaning
+}
+
+package "3. SwingController\nsrc/SwingLegController.py" {
+  component "stance_ticks = 2*overlap_ticks + swing_ticks" as StanceTicks
+  component "delta_p_2d =\nalpha * stance_ticks * dt * [vx, vy]" as SwingShift
+  component "theta =\nbeta * stance_ticks * dt * yaw_rate" as SwingTheta
+  component "touchdown =\nRz(theta) @ default_stance[:, leg] + [delta_p_2d, 0]" as Touchdown
+  component "swing_height(s)\n0 <= s < 0.5 : 2*s*z_clearance\n0.5 <= s <= 1 : 2*(1-s)*z_clearance" as SwingHeight
+  component "time_left = dt * swing_ticks * (1 - s)" as TimeLeft
+  component "v = (touchdown - foot_location)/time_left\nonly x/y components kept" as SwingVel
+  component "z_vector = [0, 0,\nswing_height + command.height]" as ZVector
+  component "new_foot =\nfoot_xy + delta_foot_xy + z_vector" as SwingOut
+  component "Physical meaning\n- predict landing point from speed + yaw\n- lift foot with triangular arc\n- move quickly enough to reach touchdown before swing ends" as SwingMeaning
+}
+
+package "4. Key Parameter Effects" {
+  component "alpha ↑\nlanding point shifts farther\nwith commanded translation" as AlphaEffect
+  component "beta ↑\nlanding point rotates more\nwith commanded yaw" as BetaEffect
+  component "z_clearance ↑\nhigher swing arc\nmore ground clearance" as ClearanceEffect
+  component "swing_time ↓\nless time_left\nhigher required swing speed" as SwingTimeEffect
+  component "z_time_constant ↓\nfaster z correction\nin stance" as ZtcEffect
+}
+
+Vel --> Vxy
+Height --> Vxy
+StateHeight --> Vxy
+Foot --> StanceZ
+StanceZ --> Vxy
+Dt --> DeltaP
+Vxy --> DeltaP
+Yaw --> DeltaR
+Dt --> DeltaR
+Foot --> StanceOut
+DeltaP --> StanceOut
+DeltaR --> StanceOut
+StanceOut --> StanceMeaning
+
+Vel --> SwingShift
+Yaw --> SwingTheta
+Height --> ZVector
+Dt --> StanceTicks
+Dt --> TimeLeft
+StanceTicks --> SwingShift
+StanceTicks --> SwingTheta
+SwingShift --> Touchdown
+SwingTheta --> Touchdown
+Foot --> SwingVel
+Touchdown --> SwingVel
+TimeLeft --> SwingVel
+Foot --> SwingOut
+SwingVel --> SwingOut
+SwingHeight --> ZVector
+ZVector --> SwingOut
+Touchdown --> SwingMeaning
+SwingHeight --> SwingMeaning
+SwingOut --> SwingMeaning
+
+SwingShift --> AlphaEffect
+SwingTheta --> BetaEffect
+SwingHeight --> ClearanceEffect
+TimeLeft --> SwingTimeEffect
+Vxy --> ZtcEffect
+
+StanceMeaning --> SwingMeaning : stance and swing alternate\ninside one gait cycle
+
+@enduml

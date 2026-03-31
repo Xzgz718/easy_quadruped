@@ -1,0 +1,90 @@
+@startuml
+title Trot Parameter Influence Map\n(what each parameter changes and where it is used)
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName Consolas
+skinparam wrapWidth 240
+skinparam maxMessageSize 220
+skinparam linetype ortho
+skinparam ArrowThickness 2
+skinparam nodesep 100
+skinparam ranksep 120
+left to right direction
+
+caption This figure connects the trot parameters that matter most to the code paths that consume them.\nUse it as a "where should I tune?" map.
+
+package "1. Timing Parameters" {
+  component "overlap_time\npupper/Config.py" as Overlap
+  component "swing_time\npupper/Config.py" as SwingTime
+  component "dt\npupper/Config.py" as Dt
+  component "overlap_ticks\nswing_ticks\nstance_ticks\nphase_length" as TickDerived
+}
+
+package "2. Foot Placement Parameters" {
+  component "alpha\nRaibert translation gain" as Alpha
+  component "beta\nRaibert yaw gain" as Beta
+  component "z_clearance\nswing height" as Clearance
+  component "delta_x delta_y x_shift\ndefault_stance" as StanceShape
+}
+
+package "3. Runtime Command Inputs" {
+  component "horizontal_velocity\nvx vy" as Vel
+  component "yaw_rate" as Yaw
+  component "height" as Height
+  component "pitch roll" as AttCmd
+}
+
+package "4. Core Consumers" {
+  component "GaitController\nphase selection" as Gait
+  component "StanceController\nsrc/StanceController.py" as Stance
+  component "SwingController\nsrc/SwingLegController.py" as Swing
+  component "Controller.run()\nbody tilt compensation" as Controller
+  component "IK\npupper/Kinematics.py" as IK
+}
+
+package "5. Observable Effects" {
+  component "gait frequency\ncycle length\nduty factor" as EffectTiming
+  component "touchdown location\nstep length\nturning step geometry" as EffectTouchdown
+  component "swing arc\nfoot clearance\ntrip resistance" as EffectSwing
+  component "stance footprint\nnominal support polygon" as EffectFootprint
+  component "joint angle demand\ntracking difficulty\nstability margin" as EffectExec
+}
+
+Dt --> TickDerived
+Overlap --> TickDerived
+SwingTime --> TickDerived
+
+TickDerived --> Gait : phase_index()\nsubphase_ticks()
+TickDerived --> Swing : stance_ticks\nswing_ticks
+TickDerived --> EffectTiming
+
+Alpha --> Swing : delta_p_2d
+Beta --> Swing : theta
+Clearance --> Swing : swing_height()
+StanceShape --> Swing : default touchdown base
+StanceShape --> IK : body-frame foot reference
+StanceShape --> EffectFootprint
+
+Vel --> Stance : support-leg back-sweep
+Vel --> Swing : Raibert touchdown shift
+Yaw --> Stance : delta_R yaw
+Yaw --> Swing : touchdown rotation
+Height --> Stance : z convergence target
+Height --> Swing : swing z offset
+AttCmd --> Controller : desired roll / pitch
+
+Gait --> EffectTiming : phase pattern
+Swing --> EffectTouchdown
+Swing --> EffectSwing
+Stance --> EffectExec
+Controller --> EffectExec : tilt compensation
+IK --> EffectExec : geometric feasibility
+
+EffectTiming --> EffectExec
+EffectTouchdown --> EffectExec
+EffectSwing --> EffectExec
+EffectFootprint --> EffectExec
+
+@enduml
